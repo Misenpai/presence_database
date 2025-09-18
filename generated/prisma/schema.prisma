@@ -1,0 +1,132 @@
+generator client {
+  provider      = "prisma-client-js"
+  output        = "../generated/prisma"
+  binaryTargets = ["native", "linux-musl", "linux-musl-openssl-3.0.x", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  employeeNumber String                @id @db.VarChar(255)
+  username       String                @unique @db.VarChar(255)
+  empClass       String                @default("PJ") @db.VarChar(10)
+  attendances    Attendance[]
+  fieldTrips     FieldTrip[]
+  userProjects   UserProjectRelation[]
+
+  @@index([username])
+  @@map("users")
+}
+
+model Project {
+  projectCode  String                @id @db.VarChar(255)
+  department   String                @db.VarChar(255)
+  userProjects UserProjectRelation[]
+  piRelations  PIProjectRelation[]
+
+  @@index([department])
+  @@map("projects")
+}
+
+model Attendance {
+  employeeNumber  String             @db.VarChar(255)
+  date            DateTime           @db.Date
+  checkinTime     DateTime?
+  checkoutTime    DateTime?
+  sessionType     AttendanceSession?
+  attendanceType  AttendanceType?
+  locationType    LocationType       @default(CAMPUS)
+  takenLocation   String?            @db.VarChar(255)
+  photoUrl        String?            @db.VarChar(500)
+  audioUrl        String?            @db.VarChar(500)
+  audioDuration   Int?
+  latitude        Float?             @db.Float
+  longitude       Float?             @db.Float
+  locationAddress String?            @db.VarChar(500)
+  county          String?            @db.VarChar(255)
+  state           String?            @db.VarChar(255)
+  postcode        String?            @db.VarChar(20)
+  user            User               @relation(fields: [employeeNumber], references: [employeeNumber], onDelete: Cascade)
+
+  @@id([employeeNumber, date])
+  @@index([date])
+  @@index([employeeNumber])
+  @@index([employeeNumber, date])
+  @@map("attendances")
+}
+
+model Calendar {
+  date        DateTime @id @db.Date
+  isHoliday   Boolean  @default(false)
+  isWeekend   Boolean  @default(false)
+  description String?  @db.VarChar(255)
+
+  @@index([date])
+  @@index([isHoliday])
+  @@map("calendar")
+}
+
+model FieldTrip {
+  fieldTripKey   String   @id @default(cuid())
+  employeeNumber String   @db.VarChar(255)
+  startDate      DateTime @db.Date
+  endDate        DateTime @db.Date
+  description    String?  @db.Text
+  isActive       Boolean  @default(true)
+  createdBy      String   @db.VarChar(255)
+  user           User     @relation(fields: [employeeNumber], references: [employeeNumber], onDelete: Cascade)
+
+  @@index([employeeNumber])
+  @@index([startDate, endDate])
+  @@index([employeeNumber, startDate, endDate])
+  @@map("field_trips")
+}
+
+model UserProjectRelation {
+  employeeNumber String  @db.VarChar(255)
+  projectCode    String  @db.VarChar(255)
+  user           User    @relation(fields: [employeeNumber], references: [employeeNumber], onDelete: Cascade)
+  project        Project @relation(fields: [projectCode], references: [projectCode], onDelete: Cascade)
+
+  @@id([employeeNumber, projectCode])
+  @@index([employeeNumber])
+  @@index([projectCode])
+  @@map("user_project_relations")
+}
+
+model PI {
+  username String @id @db.VarChar(255)
+
+  piProjects PIProjectRelation[]
+
+  @@map("pis")
+}
+
+model PIProjectRelation {
+  username    String @db.VarChar(255)
+  projectCode String @db.VarChar(255)
+
+  pi      PI      @relation(fields: [username], references: [username], onDelete: Cascade)
+  project Project @relation(fields: [projectCode], references: [projectCode], onDelete: Cascade)
+
+  @@id([username, projectCode])
+  @@map("pi_project_relations")
+}
+
+enum LocationType {
+  CAMPUS
+  FIELDTRIP
+}
+
+enum AttendanceSession {
+  FN
+  AF
+}
+
+enum AttendanceType {
+  FULL_DAY
+  HALF_DAY
+}
