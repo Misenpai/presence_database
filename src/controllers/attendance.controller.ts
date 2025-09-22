@@ -1,30 +1,43 @@
 import type { Request, Response } from "express";
-import { PrismaClient, AttendanceSession, AttendanceType, LocationType } from "../../generated/prisma/index.js";
+import {
+  PrismaClient,
+  AttendanceSession,
+  AttendanceType,
+  LocationType,
+  type Attendance,
+} from "../../generated/prisma/index.js";
 import path from "path";
 import axios from "axios";
 
 const prisma = new PrismaClient();
 
-// Helper functions remain the same...
+type ProcessedAttendance = Attendance & {
+  autoCompleted?: boolean;
+};
+
 async function getLocationDetails(lat: number, lng: number) {
   try {
-    console.log("This is running")
+    console.log("This is running");
     const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`;
     const response = await axios.get(url, {
       headers: {
-        'User-Agent': 'MyAPP/1.0'
-      }
+        "User-Agent": "MyAPP/1.0",
+      },
     });
-    
+
     const data = response.data;
     return {
       locationAddress: data.display_name || null,
-      county: data.address?.county || data.address?.city || data.address?.village || null,
+      county:
+        data.address?.county ||
+        data.address?.city ||
+        data.address?.village ||
+        null,
       state: data.address?.state || null,
-      postcode: data.address?.postcode || null
+      postcode: data.address?.postcode || null,
     };
   } catch (error) {
-    console.error('Error fetching location details:', error);
+    console.error("Error fetching location details:", error);
     return { locationAddress: null, county: null, state: null, postcode: null };
   }
 }
@@ -46,23 +59,30 @@ function getSessionType(time: Date): AttendanceSession {
   return AttendanceSession.AF;
 }
 
-function determineAttendanceType(checkinTime: Date, checkoutTime: Date | null, sessionType: AttendanceSession): AttendanceType | null {
+function determineAttendanceType(
+  checkinTime: Date,
+  checkoutTime: Date | null,
+  sessionType: AttendanceSession,
+): AttendanceType | null {
   if (!checkoutTime) {
     return null;
   }
-  
-  const hoursWorked = (checkoutTime.getTime() - checkinTime.getTime()) / (1000 * 60 * 60);
-  
+
+  const hoursWorked =
+    (checkoutTime.getTime() - checkinTime.getTime()) / (1000 * 60 * 60);
+
   if (sessionType === AttendanceSession.FN && hoursWorked >= 6) {
     return AttendanceType.FULL_DAY;
   }
-  
+
   return AttendanceType.HALF_DAY;
 }
 
 function getTodayDate(): Date {
   const today = new Date();
-  return new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+  return new Date(
+    Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()),
+  );
 }
 
 export const createAttendance = async (req: Request, res: Response) => {
@@ -71,7 +91,7 @@ export const createAttendance = async (req: Request, res: Response) => {
     console.log("Received files:", req.files);
 
     const {
-      username, // Keep username for attendance creation (for file upload consistency)
+      username,
       location,
       audioDuration,
       latitude,
@@ -109,8 +129,6 @@ export const createAttendance = async (req: Request, res: Response) => {
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
-
-    // Rest of the function remains the same...
     const isOnFieldTrip = user.fieldTrips.length > 0;
     const finalLocationType = isOnFieldTrip
       ? LocationType.FIELDTRIP
@@ -124,9 +142,9 @@ export const createAttendance = async (req: Request, res: Response) => {
       where: {
         employeeNumber_date: {
           employeeNumber: user.employeeNumber,
-          date: todayDate
-        }
-      }
+          date: todayDate,
+        },
+      },
     });
 
     if (existingAttendance && existingAttendance.checkoutTime) {
@@ -141,11 +159,11 @@ export const createAttendance = async (req: Request, res: Response) => {
     const photoFile = files.find((f) => f.mimetype.startsWith("image/"));
 
     const baseUrl = `${req.protocol}://${req.get("host")}`;
-    
+
     const photoUrl = photoFile
       ? `${baseUrl}/${path.relative(process.cwd(), photoFile.path).replace(/\\/g, "/")}`
       : null;
-      
+
     const audioUrl = audioFile
       ? `${baseUrl}/${path.relative(process.cwd(), audioFile.path).replace(/\\/g, "/")}`
       : null;
@@ -154,7 +172,12 @@ export const createAttendance = async (req: Request, res: Response) => {
     const lat = latitude ? parseFloat(latitude) : null;
     const lng = longitude ? parseFloat(longitude) : null;
 
-    let locationDetails = { locationAddress: null, county: null, state: null, postcode: null };
+    let locationDetails = {
+      locationAddress: null,
+      county: null,
+      state: null,
+      postcode: null,
+    };
     if (lat && lng) {
       locationDetails = await getLocationDetails(lat, lng);
     }
@@ -169,8 +192,8 @@ export const createAttendance = async (req: Request, res: Response) => {
         where: {
           employeeNumber_date: {
             employeeNumber: user.employeeNumber,
-            date: todayDate
-          }
+            date: todayDate,
+          },
         },
         data: {
           checkinTime: currentTime,
@@ -186,13 +209,13 @@ export const createAttendance = async (req: Request, res: Response) => {
           county: locationDetails.county,
           state: locationDetails.state,
           postcode: locationDetails.postcode,
-        }
+        },
       });
 
       return res.status(200).json({
         success: true,
         data: updatedAttendance,
-        message: `Re-checkin updated for ${sessionType} session.`
+        message: `Re-checkin updated for ${sessionType} session.`,
       });
     }
 
@@ -213,7 +236,7 @@ export const createAttendance = async (req: Request, res: Response) => {
         county: locationDetails.county,
         state: locationDetails.state,
         postcode: locationDetails.postcode,
-      }
+      },
     });
 
     res.status(201).json({
@@ -229,7 +252,7 @@ export const createAttendance = async (req: Request, res: Response) => {
 
 export const checkoutAttendance = async (req: Request, res: Response) => {
   try {
-    const { employeeNumber } = req.body; // Changed to employeeNumber
+    const { employeeNumber } = req.body;
 
     const tokenEmployeeNumber = req.user?.employeeNumber;
     const finalEmployeeNumber = employeeNumber || tokenEmployeeNumber;
@@ -252,9 +275,9 @@ export const checkoutAttendance = async (req: Request, res: Response) => {
       where: {
         employeeNumber_date: {
           employeeNumber: user.employeeNumber,
-          date: todayDate
-        }
-      }
+          date: todayDate,
+        },
+      },
     });
 
     if (!attendance) {
@@ -274,19 +297,23 @@ export const checkoutAttendance = async (req: Request, res: Response) => {
     const checkInTime = attendance.checkinTime || new Date();
     const sessionType = attendance.sessionType || AttendanceSession.FN;
 
-    const attendanceType = determineAttendanceType(checkInTime, checkOutTime, sessionType);
+    const attendanceType = determineAttendanceType(
+      checkInTime,
+      checkOutTime,
+      sessionType,
+    );
 
     const updatedAttendance = await prisma.attendance.update({
       where: {
         employeeNumber_date: {
           employeeNumber: user.employeeNumber,
-          date: todayDate
-        }
+          date: todayDate,
+        },
       },
       data: {
         checkoutTime: checkOutTime,
-        attendanceType: attendanceType || AttendanceType.HALF_DAY
-      }
+        attendanceType: attendanceType || AttendanceType.HALF_DAY,
+      },
     });
 
     const finalType = attendanceType || AttendanceType.HALF_DAY;
@@ -303,7 +330,7 @@ export const checkoutAttendance = async (req: Request, res: Response) => {
 
 export const getTodayAttendance = async (req: Request, res: Response) => {
   try {
-    const { employeeNumber } = req.params; // Changed to employeeNumber
+    const { employeeNumber } = req.params;
 
     if (!employeeNumber) {
       return res.status(400).json({ error: "Employee number is required" });
@@ -323,9 +350,9 @@ export const getTodayAttendance = async (req: Request, res: Response) => {
       where: {
         employeeNumber_date: {
           employeeNumber: user.employeeNumber,
-          date: todayDate
-        }
-      }
+          date: todayDate,
+        },
+      },
     });
 
     if (!attendance) {
@@ -335,9 +362,26 @@ export const getTodayAttendance = async (req: Request, res: Response) => {
       });
     }
 
+    const now = new Date();
+    const currentHour = now.getHours();
+
+    let processedAttendance: ProcessedAttendance = { ...attendance };
+
+    if (
+      currentHour >= 23 &&
+      !attendance.checkoutTime &&
+      attendance.checkinTime
+    ) {
+      processedAttendance = {
+        ...attendance,
+        attendanceType: AttendanceType.FULL_DAY,
+        autoCompleted: true,
+      };
+    }
+
     res.status(200).json({
       success: true,
-      data: attendance,
+      data: processedAttendance,
     });
   } catch (error: any) {
     console.error("Get today attendance error:", error);
@@ -345,8 +389,10 @@ export const getTodayAttendance = async (req: Request, res: Response) => {
   }
 };
 
-// getUserAttendanceCalendar remains the same as it already uses employeeNumber
-export const getUserAttendanceCalendar = async (req: Request, res: Response) => {
+export const getUserAttendanceCalendar = async (
+  req: Request,
+  res: Response,
+) => {
   try {
     const { employeeNumber } = req.params;
     const { year, month } = req.query;
@@ -355,7 +401,9 @@ export const getUserAttendanceCalendar = async (req: Request, res: Response) => 
       return res.status(400).json({ error: "Employee Number is required" });
     }
 
-    const queryYear = year ? parseInt(year as string) : new Date().getFullYear();
+    const queryYear = year
+      ? parseInt(year as string)
+      : new Date().getFullYear();
     const queryMonth = month ? parseInt(month as string) : null;
 
     let whereCondition: any = {
@@ -365,46 +413,82 @@ export const getUserAttendanceCalendar = async (req: Request, res: Response) => 
     if (queryMonth) {
       const startDate = new Date(queryYear, queryMonth - 1, 1);
       const endDate = new Date(queryYear, queryMonth, 0);
-      
+
       whereCondition.date = {
         gte: startDate,
-        lte: endDate
+        lte: endDate,
       };
     } else {
       const startDate = new Date(queryYear, 0, 1);
       const endDate = new Date(queryYear, 11, 31);
-      
+
       whereCondition.date = {
         gte: startDate,
-        lte: endDate
+        lte: endDate,
       };
     }
 
     const attendances = await prisma.attendance.findMany({
       where: whereCondition,
       orderBy: {
-        date: 'asc'
-      }
+        date: "asc",
+      },
     });
 
-    const totalFullDays = attendances.filter(a => a.attendanceType === AttendanceType.FULL_DAY).length;
-    const totalHalfDays = attendances.filter(a => a.attendanceType === AttendanceType.HALF_DAY).length;
-    const notCheckedOut = attendances.filter(a => !a.checkoutTime).length;
+    const now = new Date();
+    const currentHour = now.getHours();
+    const today = now.toISOString().split("T")[0];
+
+    const processedAttendances: ProcessedAttendance[] = attendances.map(
+      (attendance) => {
+        const attendanceDate = attendance.date.toISOString().split("T")[0];
+
+        if (
+          attendanceDate === today &&
+          currentHour >= 23 &&
+          !attendance.checkoutTime &&
+          attendance.checkinTime
+        ) {
+          return {
+            ...attendance,
+            attendanceType: AttendanceType.FULL_DAY,
+            autoCompleted: true,
+          };
+        }
+
+        return attendance;
+      },
+    );
+
+    const totalFullDays = processedAttendances.filter(
+      (a) =>
+        a.attendanceType === AttendanceType.FULL_DAY ||
+        a.autoCompleted === true,
+    ).length;
+
+    const totalHalfDays = processedAttendances.filter(
+      (a) => a.attendanceType === AttendanceType.HALF_DAY && !a.autoCompleted,
+    ).length;
+
+    const notCheckedOut = processedAttendances.filter(
+      (a) => !a.checkoutTime && !a.autoCompleted && a.checkinTime,
+    ).length;
+
     const totalDays = totalFullDays + totalHalfDays + notCheckedOut;
 
     res.status(200).json({
       success: true,
       data: {
-        attendances,
+        attendances: processedAttendances,
         statistics: {
           totalDays,
           totalFullDays,
           totalHalfDays,
           notCheckedOut,
           year: queryYear,
-          month: queryMonth
-        }
-      }
+          month: queryMonth,
+        },
+      },
     });
   } catch (error: any) {
     console.error("Get user attendance calendar error:", error);
